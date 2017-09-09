@@ -1,0 +1,7 @@
+= WikiDexRCFeeds =
+
+MediaWiki extension that provides custom Recent Changes feed with custom format for WikiDex.
+
+https://www.wikidex.net/
+
+Tested on MediaWiki 1.29
