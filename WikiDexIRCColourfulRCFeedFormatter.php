@@ -19,6 +19,8 @@
  * @file
  */
 
+use MediaWiki\MediaWikiServices;
+
 /**
  * Generates a colourful notification intended for humans on IRC.
  * Modification from IRCColourfulRCFeedFormatter of MediaWiki
@@ -27,6 +29,10 @@
 class WikiDexIRCColourfulRCFeedFormatter implements RCFeedFormatter {
 	/**
 	 * @see RCFeedFormatter::getLine
+	 * @param array $feed
+	 * @param RecentChange $rc
+	 * @param string|null $actionComment
+	 * @return string|null
 	 */
 	public function getLine( array $feed, RecentChange $rc, $actionComment ) {
 		global $wgUseRCPatrol, $wgUseNPPatrol, $wgLocalInterwikis,
@@ -46,7 +52,7 @@ class WikiDexIRCColourfulRCFeedFormatter implements RCFeedFormatter {
 			// IRC API which expects "Log".
 			$titleObj = Title::newFromText( 'Log/' . $attribs['rc_log_type'], NS_SPECIAL );
 		} else {
-			$titleObj =& $rc->getTitle();
+			$titleObj = $rc->getTitle();
 		}
 		$title = $titleObj->getPrefixedText();
 		$title = self::cleanupForIRC( $title );
@@ -73,6 +79,8 @@ class WikiDexIRCColourfulRCFeedFormatter implements RCFeedFormatter {
 			if ( $wgUseRCPatrol || ( $attribs['rc_type'] == RC_NEW && $wgUseNPPatrol ) ) {
 				$query .= '&rcid=' . $attribs['rc_id'];
 			}
+
+			Hooks::runner()->onIRCLineURL( $url, $query, $rc );
 			$url .= $query;
 		}
 
@@ -92,26 +100,33 @@ class WikiDexIRCColourfulRCFeedFormatter implements RCFeedFormatter {
 		$user = self::cleanupForIRC( $attribs['rc_user_text'] );
 
 		if ( $attribs['rc_type'] == RC_LOG ) {
+			$store = MediaWikiServices::getInstance()->getCommentStore();
+			$rcComment = $store->getComment( 'rc_comment', $attribs )->text;
+			$rcUserIdentity = $rc->getPerformerIdentity();
+
 			// format user in the actionComment
-			$userPos = strpos( $rc->mExtra['actionComment'], $attribs['rc_user_text'] );
+			$userPos = strpos( $rc->mExtra['actionComment'], $rcUserIdentity->getName() );
 			if ( $userPos !== false ) {
 				$user = ''; // User already comes in the actionComment
 				$comment = substr_replace(
 					$rc->mExtra['actionComment'],
-					"\00303" . $attribs['rc_user_text'] . "\003",
+					"\00303" . $rcUserIdentity->getName() . "\003",
 					$userPos,
-					strlen( $attribs['rc_user_text'] )
+					strlen( $rcUserIdentity->getName() )
 				);
 			} else {
 				$comment = $rc->mExtra['actionComment'];
 			}
-			if ( strlen( $attribs['rc_comment'] ) > 0 ) {
-				$comment .= ': ' . $attribs['rc_comment'];
+			if ( strlen( $rcComment ) > 0 ) {
+				$comment .= ': ' . $rcComment;
 			}
 			$comment = self::cleanupForIRC( $comment );
 			$flag = $attribs['rc_log_action'];
 		} else {
-			$comment = self::cleanupForIRC( $attribs['rc_comment'] );
+			$store = MediaWikiServices::getInstance()->getCommentStore();
+			$comment = self::cleanupForIRC(
+				$store->getComment( 'rc_comment', $attribs )->text
+			);
 			$flag = '';
 			if ( !$attribs['rc_patrolled']
 				&& ( $wgUseRCPatrol || $attribs['rc_type'] == RC_NEW && $wgUseNPPatrol )
@@ -142,15 +157,15 @@ class WikiDexIRCColourfulRCFeedFormatter implements RCFeedFormatter {
 			"\00302$url\003 \0035*\003 \00303$user\003 \0035*\003 $szdiff \00310$comment\003\n";
 
 		# Truncate long lines
-		if ( strlen( $fullString ) > 500 ) {
-			$fullString = mb_strcut( $fullString, 0, 500 );
+		if ( strlen( $fullString ) > 390 ) {
+			$fullString = mb_strcut( $fullString, 0, 390 );
 		}
 
 		return $fullString;
 	}
 
 	/**
-	 * Remove newlines, carriage returns and decode html entites
+	 * Remove newlines, carriage returns and decode html entities
 	 * @param string $text
 	 * @return string
 	 */
