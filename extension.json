@@ -1,12 +1,15 @@
 {
 	"name": "WikiDexRCFeeds",
-	"version": "1.1.0",
+	"version": "1.2.0",
 	"author": [
 		"[https://www.wikidex.net/wiki/Usuario:Ciencia_Al_Poder Jesús Martínez]"
 	],
 	"descriptionmsg": "wikidexrcfeeds-desc",
 	"license-name": "GPL-2.0+",
-	"type": "extension",
+	"type": "other",
+	"requires": {
+		"MediaWiki": ">= 1.43.0"
+	},
 	"MessagesDirs": {
 		"WikiDexRCFeeds": [
 			"i18n"
@@ -15,5 +18,5 @@
 	"AutoloadClasses": {
 		"WikiDexIRCColourfulRCFeedFormatter": "WikiDexIRCColourfulRCFeedFormatter.php"
 	},
-	"manifest_version": 1
+	"manifest_version": 2
 }

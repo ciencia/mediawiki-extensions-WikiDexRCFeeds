@@ -19,7 +19,12 @@
  * @file
  */
 
+use MediaWiki\MainConfigNames;
 use MediaWiki\MediaWikiServices;
+use MediaWiki\Parser\Sanitizer;
+use MediaWiki\RCFeed\RCFeedFormatter;
+use MediaWiki\Title\Title;
+use RecentChange;
 
 /**
  * Generates a colourful notification intended for humans on IRC.
@@ -35,8 +40,11 @@ class WikiDexIRCColourfulRCFeedFormatter implements RCFeedFormatter {
 	 * @return string|null
 	 */
 	public function getLine( array $feed, RecentChange $rc, $actionComment ) {
-		global $wgUseRCPatrol, $wgUseNPPatrol, $wgLocalInterwikis,
-			$wgCanonicalServer, $wgScript;
+		$services = MediaWikiServices::getInstance();
+		$mainConfig = $services->getMainConfig();
+		$localInterwikis = $mainConfig->get( MainConfigNames::LocalInterwikis );
+		$useRCPatrol = $mainConfig->get( MainConfigNames::UseRCPatrol );
+		$useNPPatrol = $mainConfig->get( MainConfigNames::UseNPPatrol );
 		$attribs = $rc->getAttributes();
 		if ( $attribs['rc_type'] == RC_CATEGORIZE ) {
 			// Don't send RC_CATEGORIZE events to IRC feed (T127360)
@@ -44,10 +52,6 @@ class WikiDexIRCColourfulRCFeedFormatter implements RCFeedFormatter {
 		}
 
 		if ( $attribs['rc_type'] == RC_LOG ) {
-			// Skip patrol logs
-			if ( $attribs['rc_log_action'] == 'patrol' ) {
-				return null;
-			}
 			// Don't use SpecialPage::getTitleFor, backwards compatibility with
 			// IRC API which expects "Log".
 			$titleObj = Title::newFromText( 'Log/' . $attribs['rc_log_type'], NS_SPECIAL );
@@ -57,32 +61,7 @@ class WikiDexIRCColourfulRCFeedFormatter implements RCFeedFormatter {
 		$title = $titleObj->getPrefixedText();
 		$title = self::cleanupForIRC( $title );
 
-		if ( $attribs['rc_type'] == RC_LOG ) {
-			$url = '';
-			$targetTitle = $rc->getTitle();
-			if ( $attribs['rc_log_type'] == 'move' ) {
-				$params = $rc->parseParams();
-				if ( isset( $params['4::target'] ) ) {
-					$targetTitle = Title::newFromText( $params['4::target'] );
-				}
-			}
-			if ( $targetTitle ) {
-				$url = $targetTitle->getCanonicalURL();
-			}
-		} else {
-			$url = $wgCanonicalServer . $wgScript;
-			if ( $attribs['rc_type'] == RC_NEW ) {
-				$query = '?oldid=' . $attribs['rc_this_oldid'];
-			} else {
-				$query = '?diff=' . $attribs['rc_this_oldid'] . '&oldid=' . $attribs['rc_last_oldid'];
-			}
-			if ( $wgUseRCPatrol || ( $attribs['rc_type'] == RC_NEW && $wgUseNPPatrol ) ) {
-				$query .= '&rcid=' . $attribs['rc_id'];
-			}
-
-			Hooks::runner()->onIRCLineURL( $url, $query, $rc );
-			$url .= $query;
-		}
+		$notifyUrl = $rc->getNotifyUrl() ?? '';
 
 		if ( $attribs['rc_old_len'] !== null && $attribs['rc_new_len'] !== null ) {
 			$szdiff = $attribs['rc_new_len'] - $attribs['rc_old_len'];
@@ -99,8 +78,9 @@ class WikiDexIRCColourfulRCFeedFormatter implements RCFeedFormatter {
 
 		$user = self::cleanupForIRC( $attribs['rc_user_text'] );
 
+		$store = $services->getCommentStore();
 		if ( $attribs['rc_type'] == RC_LOG ) {
-			$store = MediaWikiServices::getInstance()->getCommentStore();
+			# BEGIN changes from IRCColourfulRCFeedFormatter
 			$rcComment = $store->getComment( 'rc_comment', $attribs )->text;
 			$rcUserIdentity = $rc->getPerformerIdentity();
 
@@ -121,15 +101,13 @@ class WikiDexIRCColourfulRCFeedFormatter implements RCFeedFormatter {
 				$comment .= ': ' . $rcComment;
 			}
 			$comment = self::cleanupForIRC( $comment );
+			# END changes from IRCColourfulRCFeedFormatter
 			$flag = $attribs['rc_log_action'];
 		} else {
-			$store = MediaWikiServices::getInstance()->getCommentStore();
-			$comment = self::cleanupForIRC(
-				$store->getComment( 'rc_comment', $attribs )->text
-			);
+			$comment = self::cleanupForIRC( $store->getComment( 'rc_comment', $attribs )->text );
 			$flag = '';
 			if ( !$attribs['rc_patrolled']
-				&& ( $wgUseRCPatrol || $attribs['rc_type'] == RC_NEW && $wgUseNPPatrol )
+				&& ( $useRCPatrol || ( $attribs['rc_type'] == RC_NEW && $useNPPatrol ) )
 			) {
 				$flag .= '!';
 			}
@@ -137,9 +115,9 @@ class WikiDexIRCColourfulRCFeedFormatter implements RCFeedFormatter {
 				. ( $attribs['rc_minor'] ? "M" : "" ) . ( $attribs['rc_bot'] ? "B" : "" );
 		}
 
-		if ( $feed['add_interwiki_prefix'] === true && $wgLocalInterwikis ) {
+		if ( $feed['add_interwiki_prefix'] === true && $localInterwikis ) {
 			// we use the first entry in $wgLocalInterwikis in recent changes feeds
-			$prefix = $wgLocalInterwikis[0];
+			$prefix = $localInterwikis[0];
 		} elseif ( $feed['add_interwiki_prefix'] ) {
 			$prefix = $feed['add_interwiki_prefix'];
 		} else {
@@ -154,12 +132,14 @@ class WikiDexIRCColourfulRCFeedFormatter implements RCFeedFormatter {
 		# see http://www.irssi.org/documentation/formats for some colour codes. prefix is \003,
 		# no colour (\003) switches back to the term default
 		$fullString = "$titleString\0034 $flag\00310 " .
-			"\00302$url\003 \0035*\003 \00303$user\003 \0035*\003 $szdiff \00310$comment\003\n";
+			"\00302$notifyUrl\003 \0035*\003 \00303$user\003 \0035*\003 $szdiff \00310$comment\003\n";
 
+		# BEGIN changes from IRCColourfulRCFeedFormatter
 		# Truncate long lines
 		if ( strlen( $fullString ) > 390 ) {
 			$fullString = mb_strcut( $fullString, 0, 390 );
 		}
+		# END changes from IRCColourfulRCFeedFormatter
 
 		return $fullString;
 	}
