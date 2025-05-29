@@ -24,7 +24,6 @@ use MediaWiki\MediaWikiServices;
 use MediaWiki\Parser\Sanitizer;
 use MediaWiki\RCFeed\RCFeedFormatter;
 use MediaWiki\Title\Title;
-use RecentChange;
 
 /**
  * Generates a colourful notification intended for humans on IRC.
