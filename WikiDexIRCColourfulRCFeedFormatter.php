@@ -50,17 +50,32 @@ class WikiDexIRCColourfulRCFeedFormatter implements RCFeedFormatter {
 			return null;
 		}
 
+		$titleObj = $rc->getTitle();
+		$notifyUrl = '';
 		if ( $attribs['rc_type'] == RC_LOG ) {
-			// Don't use SpecialPage::getTitleFor, backwards compatibility with
-			// IRC API which expects "Log".
-			$titleObj = Title::newFromText( 'Log/' . $attribs['rc_log_type'], NS_SPECIAL );
+			# BEGIN changes from IRCColourfulRCFeedFormatter
+			// Skip patrol logs
+			if ( $attribs['rc_log_action'] == 'patrol' ) {
+				return null;
+			}
+			// Use target title for moves
+			if ( $attribs['rc_log_type'] == 'move' ) {
+				$params = $rc->parseParams();
+				if ( isset( $params['4::target'] ) ) {
+					$titleObj = Title::newFromText( $params['4::target'] );
+				}
+			}
+			// Get notifyUrl from the actual title
+			// $rc->getNotifyUrl() returns nothing for logs
+			if ( $titleObj ) {
+				$notifyUrl = $titleObj->getCanonicalURL();
+			}
+			# END changes from IRCColourfulRCFeedFormatter
 		} else {
-			$titleObj = $rc->getTitle();
+			$notifyUrl = $rc->getNotifyUrl() ?? '';
 		}
 		$title = $titleObj->getPrefixedText();
 		$title = self::cleanupForIRC( $title );
-
-		$notifyUrl = $rc->getNotifyUrl() ?? '';
 
 		if ( $attribs['rc_old_len'] !== null && $attribs['rc_new_len'] !== null ) {
 			$szdiff = $attribs['rc_new_len'] - $attribs['rc_old_len'];
